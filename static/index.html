@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f0f0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Attention Tracker</title>
+  <link rel="manifest" href="/static/manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="apple-touch-icon" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="header">
+      <h1 class="title">Attention Tracker</h1>
+    </header>
+
+    <main class="main">
+      <!-- Landing -->
+      <section id="view-landing" class="view" data-view="landing">
+        <p class="tagline">Track focus sessions and distractions.</p>
+        <button type="button" id="btn-start" class="btn btn-primary">Start Session</button>
+        <a href="#stats" id="link-stats" class="link-stats">View stats</a>
+      </section>
+
+      <!-- Active session -->
+      <section id="view-active" class="view hidden" data-view="active">
+        <div class="timer-wrap">
+          <span id="timer-display" class="timer">0:00:00</span>
+        </div>
+        <p class="distraction-count">Distractions: <span id="distraction-count">0</span></p>
+        <button type="button" id="btn-distraction" class="btn btn-distraction">I got distracted</button>
+        <button type="button" id="btn-end" class="btn btn-secondary">End Session</button>
+      </section>
+
+      <!-- Summary (after end) -->
+      <section id="view-summary" class="view hidden" data-view="summary">
+        <h2 class="summary-title">Session summary</h2>
+        <dl class="summary-list">
+          <dt>Duration</dt>
+          <dd id="summary-duration">—</dd>
+          <dt>Distractions</dt>
+          <dd id="summary-distractions">—</dd>
+          <dt>Longest focus streak</dt>
+          <dd id="summary-streak">—</dd>
+        </dl>
+        <button type="button" id="btn-back" class="btn btn-primary">Back to start</button>
+        <a href="#stats" id="link-stats-summary" class="link-stats">View stats</a>
+      </section>
+
+      <!-- Stats -->
+      <section id="view-stats" class="view hidden" data-view="stats">
+        <h2 class="stats-title">Dashboard</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <span class="stat-value" id="stat-sessions">0</span>
+            <span class="stat-label">Sessions today</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-per-hour">0</span>
+            <span class="stat-label">Distractions / hour</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-streak">—</span>
+            <span class="stat-label">Longest focus streak</span>
+          </div>
+        </div>
+        <h3 class="trend-title">Last 7 days</h3>
+        <div id="trend-list" class="trend-list"></div>
+        <a href="#" id="link-back-from-stats" class="link-stats">Back</a>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
