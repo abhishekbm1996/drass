@@ -29,7 +29,18 @@ No auth — single-user MVP.
    pip install -r requirements.txt
    ```
 
-4. (Optional) Use a separate data directory for the SQLite DB by setting an env var or editing `server/database.py`; by default the DB file is `attention_tracker.db` in the project root.
+4. (Optional) Use a separate data directory for the SQLite DB: set `ATTENTION_TRACKER_DB` to a file path (e.g. `export ATTENTION_TRACKER_DB=/path/to/data/attention_tracker.db`). Default is `attention_tracker.db` in the project root.
+
+## Testing
+
+Tests use an isolated SQLite DB per run (via `ATTENTION_TRACKER_DB` in tests). Install dev dependencies and run pytest:
+
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+CI runs on push/PR to `main` or `master` (see [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 
 ## Run locally
 
@@ -54,6 +65,8 @@ Binding to `0.0.0.0` is required so the server is reachable from your phone or o
 
 ```
 attention-tracker/
+├── .github/workflows/
+│   └── ci.yml        # Run tests on push/PR
 ├── server/
 │   ├── main.py       # FastAPI app, static mount, API routes
 │   ├── database.py   # SQLite schema and CRUD
@@ -65,7 +78,11 @@ attention-tracker/
 │   ├── manifest.json
 │   ├── service-worker.js
 │   └── favicon.svg
+├── tests/
+│   ├── conftest.py   # Pytest fixtures (client, isolated DB)
+│   └── test_api.py   # API contract and behavior tests
 ├── requirements.txt
+├── requirements-dev.txt
 ├── README.md
 └── .gitignore
 ```

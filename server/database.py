@@ -1,12 +1,17 @@
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parent.parent / "attention_tracker.db"
+_DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "attention_tracker.db"
+
+
+def _get_db_path():
+    return os.environ.get("ATTENTION_TRACKER_DB", str(_DEFAULT_DB_PATH))
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(_get_db_path())
     conn.row_factory = sqlite3.Row
     return conn
 
