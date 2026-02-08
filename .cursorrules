@@ -1,0 +1,63 @@
+# Attention Tracker — Agent Instructions
+
+## Project Context
+This is a minimal, self-hosted attention tracking web app. Single user MVP. Python FastAPI backend, vanilla HTML/CSS/JS frontend, SQLite database. Keep it simple.
+
+## Core Principles
+
+### Minimal Changes Only
+- Make the smallest possible change to achieve the task
+- Do NOT refactor unrelated code while making a change
+- Do NOT add edge case handling unless explicitly asked
+- Do NOT add features or improvements that weren't requested
+- Resist the urge to "clean up" or "improve" existing working code
+
+### Tests First
+- ALWAYS run existing tests before making changes to understand current state
+- ALWAYS run tests after making changes to confirm nothing is broken
+- If tests fail after your change, fix them before considering the task done
+- When adding new functionality, add a corresponding test
+- Do NOT skip tests or mark them as "to be fixed later"
+
+### Keep It Simple
+- This is a single user MVP — do not over-engineer
+- No premature abstractions or design patterns
+- No adding dependencies unless absolutely necessary
+- Prefer Python stdlib over third-party packages where possible
+- Vanilla JS on the frontend — no frameworks, no build tools
+
+### Code Style
+- Python: follow PEP 8, use type hints for function signatures
+- JS: vanilla ES6+, no transpilation needed
+- CSS: simple, flat selectors — no BEM, no CSS-in-JS
+- Prefer readability over cleverness
+
+## Project Structure
+attention-tracker/
+├── server/          # FastAPI backend
+│   ├── main.py      # App entry, routes
+│   ├── database.py  # SQLite setup and queries
+│   └── models.py    # Pydantic models
+├── static/          # Frontend served by FastAPI
+│   ├── index.html
+│   ├── style.css
+│   ├── app.js
+│   ├── manifest.json
+│   └── service-worker.js
+├── tests/           # Test files
+├── requirements.txt
+├── .cursorrules     # This file
+└── AGENTS.md        # Same as .cursorrules
+
+## Do's
+- Run `pytest` before and after every change
+- Keep API responses consistent with existing patterns
+- Test on mobile viewport if touching frontend
+- Commit messages: short, imperative (e.g., "Add stats endpoint", "Fix session timer bug")
+
+## Don'ts
+- Don't add auth, multi-user support, or deployment configs unless asked
+- Don't switch database, framework, or architecture unless asked
+- Don't add logging, monitoring, or error tracking unless asked
+- Don't create new files unless the task requires it
+- Don't modify the database schema without being explicitly asked

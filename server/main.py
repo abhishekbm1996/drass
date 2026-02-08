@@ -8,12 +8,14 @@ from server.database import (
     add_distraction as db_add_distraction,
     create_session as db_create_session,
     end_session as db_end_session,
+    get_active_session,
     get_session,
     get_session_summary,
     get_stats,
     init_db,
 )
 from server.models import (
+    ActiveSessionResponse,
     DayTrend,
     DistractionResponse,
     SessionResponse,
@@ -49,6 +51,14 @@ def service_worker():
     if not sw_path.exists():
         raise HTTPException(status_code=404, detail="service-worker.js not found")
     return FileResponse(sw_path, media_type="application/javascript")
+
+
+@app.get("/api/sessions/active", response_model=ActiveSessionResponse)
+def active_session():
+    session = get_active_session()
+    if not session:
+        raise HTTPException(status_code=404, detail="No active session")
+    return ActiveSessionResponse(**session)
 
 
 @app.post("/api/sessions", response_model=SessionResponse)

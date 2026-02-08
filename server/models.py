@@ -9,6 +9,13 @@ class SessionResponse(BaseModel):
     ended_at: Optional[str] = None
 
 
+class ActiveSessionResponse(BaseModel):
+    id: int
+    started_at: str
+    ended_at: Optional[str] = None
+    distraction_count: int
+
+
 class DistractionResponse(BaseModel):
     id: int
     session_id: int

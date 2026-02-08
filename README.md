@@ -89,6 +89,7 @@ attention-tracker/
 
 ## API
 
+- `GET /api/sessions/active` — Current active session (if any); used to restore state on refresh
 - `POST /api/sessions` — Start a new session
 - `PATCH /api/sessions/{id}` — End a session
 - `GET /api/sessions/{id}/summary` — Session summary (duration, distractions, streaks)

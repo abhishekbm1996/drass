@@ -105,6 +105,13 @@
   $("#btn-distraction")?.addEventListener("click", async () => {
     if (!currentSession) return;
     playClickBeep();
+    const btn = document.getElementById("btn-distraction");
+    if (btn) {
+      btn.classList.remove("btn-distraction--pulse");
+      btn.offsetHeight;
+      btn.classList.add("btn-distraction--pulse");
+      setTimeout(() => btn.classList.remove("btn-distraction--pulse"), 350);
+    }
     try {
       await api("POST", `/api/sessions/${currentSession.id}/distractions`);
       distractionCount += 1;
@@ -186,10 +193,26 @@
     navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
   }
 
-  // --- Init
-  if (window.location.hash === "#stats") {
-    showView("stats");
-  } else {
-    showView(currentSession ? "active" : "landing");
-  }
+  // --- Init: always restore active session first, then show view (so Back from stats shows active)
+  (function init() {
+    api("GET", "/api/sessions/active")
+      .then((data) => {
+        currentSession = { id: data.id, started_at: data.started_at };
+        distractionCount = data.distraction_count || 0;
+        const el = $("#distraction-count");
+        if (el) el.textContent = String(distractionCount);
+        if (window.location.hash === "#stats") {
+          showView("stats");
+        } else {
+          showView("active");
+        }
+      })
+      .catch(() => {
+        if (window.location.hash === "#stats") {
+          showView("stats");
+        } else {
+          showView(currentSession ? "active" : "landing");
+        }
+      });
+  })();
 })();

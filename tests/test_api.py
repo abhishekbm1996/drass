@@ -2,6 +2,35 @@
 import pytest
 
 
+def test_get_active_404_when_no_active(client):
+    r = client.get("/api/sessions/active")
+    assert r.status_code == 404
+
+
+def test_get_active_200_after_post_with_distraction_count(client):
+    create = client.post("/api/sessions").json()
+    sid = create["id"]
+    r = client.get("/api/sessions/active")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"] == sid
+    assert data["started_at"] == create["started_at"]
+    assert data["ended_at"] is None
+    assert data["distraction_count"] == 0
+    client.post(f"/api/sessions/{sid}/distractions")
+    r = client.get("/api/sessions/active")
+    assert r.status_code == 200
+    assert r.json()["distraction_count"] == 1
+
+
+def test_get_active_404_after_end(client):
+    create = client.post("/api/sessions").json()
+    assert client.get("/api/sessions/active").status_code == 200
+    client.patch(f"/api/sessions/{create['id']}")
+    r = client.get("/api/sessions/active")
+    assert r.status_code == 404
+
+
 def test_post_sessions_returns_201_and_session(client):
     r = client.post("/api/sessions")
     assert r.status_code == 200
