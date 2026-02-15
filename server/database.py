@@ -19,7 +19,10 @@ def _get_db_path():
 def _pg_conn():
     import psycopg2
     from psycopg2.extras import RealDictCursor
-    return psycopg2.connect(os.environ["DATABASE_URL"], cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(os.environ["DATABASE_URL"], cursor_factory=RealDictCursor)
+    # Disable prepared statements for Supabase transaction-mode pooler (serverless)
+    conn.prepare_threshold = None
+    return conn
 
 
 def _sqlite_conn():
