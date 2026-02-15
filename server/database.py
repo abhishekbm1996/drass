@@ -41,9 +41,11 @@ _cached_pg_conn = None
 def get_connection():
     if USE_PG:
         global _cached_pg_conn
-        if _cached_pg_conn is not None:
+        # Check if cached connection is still usable (local check, no round trip)
+        if _cached_pg_conn is not None and not _cached_pg_conn.closed:
             try:
-                _cached_pg_conn.cursor().execute("SELECT 1")
+                # Reset any aborted transaction state without a DB round trip
+                _cached_pg_conn.rollback()
                 return _cached_pg_conn
             except Exception:
                 try:
