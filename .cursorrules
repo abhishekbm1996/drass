@@ -1,7 +1,7 @@
-# Attention Tracker — Agent Instructions
+# Drass — Agent Instructions
 
 ## Project Context
-This is a minimal, self-hosted attention tracking web app. Single user MVP. Python FastAPI backend, vanilla HTML/CSS/JS frontend, SQLite database. Keep it simple.
+Drass is a minimal, self-hosted focus tracking web app. Single user MVP. Python FastAPI backend, vanilla HTML/CSS/JS frontend, SQLite database. Keep it simple.
 
 ## Core Principles
 
@@ -33,7 +33,7 @@ This is a minimal, self-hosted attention tracking web app. Single user MVP. Pyth
 - Prefer readability over cleverness
 
 ## Project Structure
-attention-tracker/
+drass/
 ├── server/          # FastAPI backend
 │   ├── main.py      # App entry, routes
 │   ├── database.py  # SQLite setup and queries

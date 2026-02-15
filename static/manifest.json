@@ -1,6 +1,6 @@
 {
-  "name": "Attention Tracker",
-  "short_name": "Attention",
+  "name": "Drass",
+  "short_name": "Drass",
   "description": "Track focus sessions and distractions",
   "start_url": "/",
   "display": "standalone",

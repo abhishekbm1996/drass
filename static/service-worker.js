@@ -1,4 +1,4 @@
-const CACHE_NAME = "attention-tracker-v1";
+const CACHE_NAME = "drass-v1";
 const PRECACHE = ["/", "/static/index.html", "/static/style.css", "/static/app.js", "/static/manifest.json"];
 
 self.addEventListener("install", (event) => {

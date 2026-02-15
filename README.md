@@ -1,6 +1,6 @@
-# Attention Tracker
+# Drass
 
-A minimal, self-hosted web app to consciously track attention breaks during work sessions and surface focus patterns over time. Start a session, tap “I got distracted” when you slip, then end the session to see duration, distraction count, and focus streaks. View a simple dashboard of today’s stats and a 7-day trend.
+Drass is a minimal, self-hosted web app to consciously track attention breaks during work sessions and surface focus patterns over time. Named after a place in Ladakh—cold, clear, rocky. Start a session, tap “I got distracted” when you slip, then end the session to see duration, distraction count, and focus streaks. View a simple dashboard of today’s stats and a 7-day trend.
 
 ## Tech stack
 
@@ -14,7 +14,7 @@ A minimal, self-hosted web app to consciously track attention breaks during work
 
 1. Clone the repo and go into the project directory:
    ```bash
-   cd attention-tracker
+   cd drass
    ```
 
 2. Create and activate a virtual environment:
@@ -75,7 +75,7 @@ Binding to `0.0.0.0` is required so the server is reachable from your phone or o
 ## Project structure
 
 ```
-attention-tracker/
+drass/
 ├── .github/workflows/
 │   └── ci.yml        # Run tests on push/PR
 ├── server/

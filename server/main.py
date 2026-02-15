@@ -25,7 +25,7 @@ from server.models import (
     StatsResponse,
 )
 
-app = FastAPI(title="Attention Tracker")
+app = FastAPI(title="Drass")
 
 # Resolve static dir relative to project root (parent of server/)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
