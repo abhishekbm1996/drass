@@ -119,39 +119,6 @@ def log_distraction(session_id: int):
     return DistractionResponse(id=dist_id, session_id=sid, created_at=created_at)
 
 
-@app.get("/api/debug")
-def debug_info():
-    """Temporary debug endpoint to diagnose preview deployment issues."""
-    import traceback
-    info = {
-        "env_keys": sorted([k for k in os.environ.keys() if any(x in k.upper() for x in ["DATABASE", "SUPABASE", "DB", "PG", "POSTGRES"])]),
-        "USE_PG": None,
-        "DB_URL_set": None,
-        "db_connection": None,
-    }
-    try:
-        from server.database import USE_PG, _DB_URL
-        info["USE_PG"] = USE_PG
-        info["DB_URL_set"] = bool(_DB_URL)
-        info["DB_URL_prefix"] = _DB_URL[:30] + "..." if _DB_URL else None
-    except Exception as e:
-        info["import_error"] = str(e)
-    try:
-        from server.database import get_connection
-        conn = get_connection()
-        if USE_PG:
-            cur = conn.cursor()
-            cur.execute("SELECT 1 as ok")
-            row = cur.fetchone()
-            info["db_connection"] = "OK" if row else "NO_RESULT"
-        else:
-            info["db_connection"] = "sqlite"
-    except Exception as e:
-        info["db_connection"] = f"FAILED: {e}"
-        info["db_traceback"] = traceback.format_exc()
-    return info
-
-
 @app.get("/api/stats", response_model=StatsResponse, dependencies=[Depends(_verify_basic_auth)])
 def stats():
     raw = get_stats()
