@@ -21,11 +21,42 @@ def _get_db_path():
     return os.environ.get("ATTENTION_TRACKER_DB", str(_DEFAULT_DB_PATH))
 
 
+# Connection pool for Postgres (reduces latency on Vercel by reusing connections)
+_pg_pool = None
+
+
+class _PooledConnection:
+    """Wrapper that returns connection to pool on close() instead of closing it."""
+
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+
+    def close(self):
+        self._pool.putconn(self._conn)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def _get_pg_pool():
+    global _pg_pool
+    if _pg_pool is None:
+        from psycopg2 import pool
+        from psycopg2.extras import RealDictCursor
+        _pg_pool = pool.SimpleConnectionPool(
+            minconn=1,
+            maxconn=5,
+            dsn=_DB_URL,
+            cursor_factory=RealDictCursor,
+        )
+    return _pg_pool
+
+
 def _pg_conn():
-    import psycopg2
-    from psycopg2.extras import RealDictCursor
-    conn = psycopg2.connect(_DB_URL, cursor_factory=RealDictCursor)
-    return conn
+    pool = _get_pg_pool()
+    conn = pool.getconn()
+    return _PooledConnection(pool, conn)
 
 
 def _sqlite_conn():
