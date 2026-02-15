@@ -87,7 +87,8 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS sessions (
                     id SERIAL PRIMARY KEY,
                     started_at TEXT NOT NULL,
-                    ended_at TEXT
+                    ended_at TEXT,
+                    name TEXT
                 )
             """)
             cur.execute("""
@@ -97,12 +98,20 @@ def init_db():
                     created_at TEXT NOT NULL
                 )
             """)
+            # Add name column if missing (existing tables)
+            cur.execute("""
+                DO $$ BEGIN
+                    ALTER TABLE sessions ADD COLUMN name TEXT;
+                EXCEPTION WHEN duplicate_column THEN NULL;
+                END $$;
+            """)
         else:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     started_at TEXT NOT NULL,
-                    ended_at TEXT
+                    ended_at TEXT,
+                    name TEXT
                 )
             """)
             conn.execute("""
@@ -113,6 +122,11 @@ def init_db():
                     FOREIGN KEY (session_id) REFERENCES sessions(id)
                 )
             """)
+            # Add name column if missing (existing tables)
+            try:
+                conn.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
+            except Exception:
+                pass
         # Indexes for performance
         if USE_PG:
             cur = conn.cursor()
@@ -128,20 +142,20 @@ def init_db():
         _release(conn)
 
 
-def create_session() -> tuple[int, str]:
+def create_session(name: str | None = None) -> tuple[int, str]:
     started_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = get_connection()
     try:
         if USE_PG:
             cur = conn.cursor()
             cur.execute(
-                "INSERT INTO sessions (started_at, ended_at) VALUES (%s, %s) RETURNING id",
-                (started_at, None),
+                "INSERT INTO sessions (started_at, ended_at, name) VALUES (%s, %s, %s) RETURNING id",
+                (started_at, None, name),
             )
             row = cur.fetchone()
             conn.commit()
             return row["id"], started_at
-        cur = conn.execute("INSERT INTO sessions (started_at, ended_at) VALUES (?, ?)", (started_at, None))
+        cur = conn.execute("INSERT INTO sessions (started_at, ended_at, name) VALUES (?, ?, ?)", (started_at, None, name))
         conn.commit()
         return cur.lastrowid, started_at
     finally:
@@ -157,21 +171,21 @@ def get_active_session() -> dict | None:
         if USE_PG:
             cur = conn.cursor()
             cur.execute(
-                """SELECT s.id, s.started_at, s.ended_at, COUNT(d.id) as distraction_count
+                """SELECT s.id, s.started_at, s.ended_at, s.name, COUNT(d.id) as distraction_count
                    FROM sessions s
                    LEFT JOIN distractions d ON d.session_id = s.id
                    WHERE s.ended_at IS NULL
-                   GROUP BY s.id, s.started_at, s.ended_at
+                   GROUP BY s.id, s.started_at, s.ended_at, s.name
                    ORDER BY s.started_at DESC LIMIT 1"""
             )
             row = cur.fetchone()
         else:
             row = conn.execute(
-                """SELECT s.id, s.started_at, s.ended_at, COUNT(d.id) as distraction_count
+                """SELECT s.id, s.started_at, s.ended_at, s.name, COUNT(d.id) as distraction_count
                    FROM sessions s
                    LEFT JOIN distractions d ON d.session_id = s.id
                    WHERE s.ended_at IS NULL
-                   GROUP BY s.id, s.started_at, s.ended_at
+                   GROUP BY s.id, s.started_at, s.ended_at, s.name
                    ORDER BY s.started_at DESC LIMIT 1"""
             ).fetchone()
         if row is None:
@@ -190,6 +204,7 @@ def get_active_session() -> dict | None:
             "started_at": started_at_str,
             "ended_at": row_d["ended_at"],
             "distraction_count": row_d["distraction_count"],
+            "name": row_d.get("name"),
         }
     finally:
         _release(conn)
@@ -242,11 +257,11 @@ def end_session_full(session_id: int) -> dict:
     try:
         if USE_PG:
             cur = conn.cursor()
-            cur.execute("SELECT id, started_at, ended_at FROM sessions WHERE id = %s", (session_id,))
+            cur.execute("SELECT id, started_at, ended_at, name FROM sessions WHERE id = %s", (session_id,))
             session = cur.fetchone()
         else:
             session = conn.execute(
-                "SELECT id, started_at, ended_at FROM sessions WHERE id = ?", (session_id,)
+                "SELECT id, started_at, ended_at, name FROM sessions WHERE id = ?", (session_id,)
             ).fetchone()
 
         if not session:
@@ -289,6 +304,7 @@ def end_session_full(session_id: int) -> dict:
             "id": session_id,
             "started_at": session_d["started_at"],
             "ended_at": ended_at,
+            "name": session_d.get("name"),
             "summary": {
                 "duration_seconds": round(duration_seconds, 2),
                 "distraction_count": count,

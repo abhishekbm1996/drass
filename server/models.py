@@ -3,10 +3,15 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+class StartSessionRequest(BaseModel):
+    name: Optional[str] = None
+
+
 class SessionResponse(BaseModel):
     id: int
     started_at: str
     ended_at: Optional[str] = None
+    name: Optional[str] = None
 
 
 class ActiveSessionResponse(BaseModel):
@@ -14,6 +19,7 @@ class ActiveSessionResponse(BaseModel):
     started_at: str
     ended_at: Optional[str] = None
     distraction_count: int
+    name: Optional[str] = None
 
 
 class DistractionResponse(BaseModel):
@@ -41,6 +47,7 @@ class SessionEndResponse(BaseModel):
     id: int
     started_at: str
     ended_at: str
+    name: Optional[str] = None
     summary: SessionSummaryResponse
 
 

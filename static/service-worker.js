@@ -1,4 +1,4 @@
-const CACHE_NAME = "drass-v5";
+const CACHE_NAME = "drass-v6";
 const PRECACHE = ["/", "/static/index.html", "/static/style.css", "/static/app.js", "/static/stars.js", "/static/manifest.json"];
 
 self.addEventListener("install", (event) => {

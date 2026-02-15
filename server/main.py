@@ -22,6 +22,7 @@ from server.models import (
     SessionEndResponse,
     SessionResponse,
     SessionSummaryResponse,
+    StartSessionRequest,
     StatsResponse,
 )
 
@@ -77,9 +78,10 @@ def active_session():
 
 
 @app.post("/api/sessions", response_model=SessionResponse, dependencies=[Depends(_verify_basic_auth)])
-def start_session():
-    session_id, started_at = db_create_session()
-    return SessionResponse(id=session_id, started_at=started_at, ended_at=None)
+def start_session(body: StartSessionRequest = StartSessionRequest()):
+    name = body.name.strip() if body.name else None
+    session_id, started_at = db_create_session(name=name)
+    return SessionResponse(id=session_id, started_at=started_at, ended_at=None, name=name)
 
 
 @app.patch("/api/sessions/{session_id}", response_model=SessionEndResponse, dependencies=[Depends(_verify_basic_auth)])
@@ -95,6 +97,7 @@ def end_session(session_id: int):
         id=result["id"],
         started_at=result["started_at"],
         ended_at=result["ended_at"],
+        name=result.get("name"),
         summary=SessionSummaryResponse(**result["summary"]),
     )
 

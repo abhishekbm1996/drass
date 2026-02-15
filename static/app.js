@@ -22,6 +22,7 @@
           id: currentSession.id,
           started_at: currentSession.started_at,
           distraction_count: distractionCount,
+          name: currentSession.name || null,
         })
       );
     } catch (_) {}
@@ -45,11 +46,23 @@
         return null;
       }
       return {
-        session: { id: data.id, started_at: data.started_at },
+        session: { id: data.id, started_at: data.started_at, name: data.name || null },
         distractionCount: data.distraction_count || 0,
       };
     } catch (_) {
       return null;
+    }
+  }
+
+  function updateSessionNameDisplay() {
+    const el = $("#session-name-display");
+    if (!el) return;
+    if (currentSession && currentSession.name) {
+      el.textContent = currentSession.name;
+      el.classList.remove("hidden");
+    } else {
+      el.textContent = "";
+      el.classList.add("hidden");
     }
   }
 
@@ -58,7 +71,10 @@
       const el = document.getElementById("view-" + v);
       if (el) el.classList.toggle("hidden", v !== name);
     });
-    if (name === "active" && currentSession) startTimer();
+    if (name === "active" && currentSession) {
+      startTimer();
+      updateSessionNameDisplay();
+    }
     if (name === "stats") loadStats();
   }
 
@@ -140,12 +156,16 @@
 
   // --- Landing (optimistic: show UI first, then sync with server)
   $("#btn-start")?.addEventListener("click", async () => {
+    const nameInput = $("#session-name");
+    const sessionName = nameInput ? nameInput.value.trim() : "";
     const optimisticStartedAt = new Date().toISOString();
-    currentSession = { id: -1, started_at: optimisticStartedAt };
+    currentSession = { id: -1, started_at: optimisticStartedAt, name: sessionName || null };
     distractionCount = 0;
     $("#distraction-count").textContent = "0";
+    if (nameInput) nameInput.value = "";
     showView("active");
-    sessionPromise = api("POST", "/api/sessions");
+    const body = sessionName ? { name: sessionName } : undefined;
+    sessionPromise = api("POST", "/api/sessions", body);
     try {
       const session = await sessionPromise;
       currentSession = session;
@@ -309,7 +329,7 @@
     }
     api("GET", "/api/sessions/active")
       .then((data) => {
-        currentSession = { id: data.id, started_at: data.started_at };
+        currentSession = { id: data.id, started_at: data.started_at, name: data.name || null };
         distractionCount = data.distraction_count || 0;
         const el = $("#distraction-count");
         if (el) el.textContent = String(distractionCount);

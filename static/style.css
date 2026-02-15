@@ -166,6 +166,41 @@ body {
   text-align: center;
 }
 
+/* ── Session name input ── */
+.session-name-input {
+  width: 100%;
+  max-width: 280px;
+  padding: 0.7rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  text-align: center;
+  outline: none;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.session-name-input::placeholder {
+  color: var(--text-muted);
+}
+
+.session-name-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 16px rgba(108, 180, 247, 0.15);
+}
+
+.session-name-display {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
 /* ── Buttons ── */
 .btn {
   min-height: 48px;
