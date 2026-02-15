@@ -1,8 +1,8 @@
 """Vercel entrypoint: export FastAPI app for serverless deployment."""
 import os
 import sys
+from urllib.parse import urlparse
 
-# Minimal test: does the Python runtime even work?
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 
@@ -12,34 +12,65 @@ app = FastAPI()
 def debug():
     info = []
     info.append(f"Python: {sys.version}")
-    info.append(f"Env keys with DB/PG/SUPA: {[k for k in os.environ if any(x in k.upper() for x in ['DATABASE','PG','SUPA','DB'])]}")
-    info.append(f"DATABASE_POSTGRES_URL set: {bool(os.environ.get('DATABASE_POSTGRES_URL'))}")
 
-    # Test psycopg2 import
-    try:
-        import psycopg2
-        info.append(f"psycopg2 version: {psycopg2.__version__}")
-    except Exception as e:
-        info.append(f"psycopg2 import FAILED: {e}")
+    db_url = os.environ.get("DATABASE_POSTGRES_URL", "")
+    info.append(f"DB URL set: {bool(db_url)}")
 
-    # Test DB connection
-    db_url = os.environ.get("DATABASE_POSTGRES_URL")
     if db_url:
-        info.append(f"DB URL prefix: {db_url[:40]}...")
+        parsed = urlparse(db_url)
+        info.append(f"URL scheme: {parsed.scheme}")
+        info.append(f"URL user: {parsed.username}")
+        info.append(f"URL host: {parsed.hostname}")
+        info.append(f"URL port: {parsed.port}")
+        info.append(f"URL dbname: {parsed.path}")
+
+        import psycopg2
+
+        # Test 1: Connect with URL string (current approach)
         try:
-            import psycopg2
             conn = psycopg2.connect(db_url)
             cur = conn.cursor()
             cur.execute("SELECT 1")
-            info.append(f"DB connection: OK")
+            info.append("Test 1 (URL string): OK")
             conn.close()
         except Exception as e:
-            info.append(f"DB connection FAILED: {e}")
-    else:
-        info.append("No DATABASE_POSTGRES_URL found")
+            info.append(f"Test 1 (URL string): FAILED - {e}")
+
+        # Test 2: Connect with explicit params
+        try:
+            conn = psycopg2.connect(
+                host=parsed.hostname,
+                port=parsed.port,
+                user=parsed.username,
+                password=parsed.password,
+                dbname=parsed.path.lstrip("/"),
+            )
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            info.append("Test 2 (explicit params): OK")
+            conn.close()
+        except Exception as e:
+            info.append(f"Test 2 (explicit params): FAILED - {e}")
+
+        # Test 3: Try session mode (port 5432) if currently on 6543
+        if parsed.port == 6543:
+            try:
+                conn = psycopg2.connect(
+                    host=parsed.hostname,
+                    port=5432,
+                    user=parsed.username,
+                    password=parsed.password,
+                    dbname=parsed.path.lstrip("/"),
+                )
+                cur = conn.cursor()
+                cur.execute("SELECT 1")
+                info.append("Test 3 (session mode 5432): OK")
+                conn.close()
+            except Exception as e:
+                info.append(f"Test 3 (session mode 5432): FAILED - {e}")
 
     return PlainTextResponse("\n".join(info))
 
 @app.get("/{path:path}")
 def catch_all(path: str):
-    return PlainTextResponse("Minimal debug app running. Visit /api/debug")
+    return PlainTextResponse("Debug app. Visit /api/debug")
