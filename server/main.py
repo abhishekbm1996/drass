@@ -7,14 +7,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from server.database import (
-    add_distraction as db_add_distraction,
     create_session as db_create_session,
-    end_session as db_end_session,
+    end_session_full,
     get_active_session,
-    get_session,
     get_session_summary,
     get_stats,
     init_db,
+    validate_and_add_distraction,
 )
 from server.models import (
     ActiveSessionResponse,
@@ -85,20 +84,18 @@ def start_session():
 
 @app.patch("/api/sessions/{session_id}", response_model=SessionEndResponse, dependencies=[Depends(_verify_basic_auth)])
 def end_session(session_id: int):
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.get("ended_at"):
-        raise HTTPException(status_code=400, detail="Session already ended")
-    ended_at = db_end_session(session_id)
-    summary = get_session_summary(session_id)
-    if not summary:
-        raise HTTPException(status_code=500, detail="Failed to get summary")
+    try:
+        result = end_session_full(session_id)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     return SessionEndResponse(
-        id=session_id,
-        started_at=session["started_at"],
-        ended_at=ended_at,
-        summary=SessionSummaryResponse(**summary),
+        id=result["id"],
+        started_at=result["started_at"],
+        ended_at=result["ended_at"],
+        summary=SessionSummaryResponse(**result["summary"]),
     )
 
 
@@ -112,12 +109,13 @@ def session_summary(session_id: int):
 
 @app.post("/api/sessions/{session_id}/distractions", response_model=DistractionResponse, dependencies=[Depends(_verify_basic_auth)])
 def log_distraction(session_id: int):
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if session.get("ended_at"):
-        raise HTTPException(status_code=400, detail="Session already ended")
-    dist_id, sid, created_at = db_add_distraction(session_id)
+    try:
+        dist_id, sid, created_at = validate_and_add_distraction(session_id)
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     return DistractionResponse(id=dist_id, session_id=sid, created_at=created_at)
 
 

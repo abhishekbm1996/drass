@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -82,6 +83,16 @@ def init_db():
                     FOREIGN KEY (session_id) REFERENCES sessions(id)
                 )
             """)
+        # Indexes for performance
+        if USE_PG:
+            cur = conn.cursor()
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ended_at ON sessions(ended_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_distractions_session_id ON distractions(session_id)")
+        else:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ended_at ON sessions(ended_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_distractions_session_id ON distractions(session_id)")
         conn.commit()
     finally:
         conn.close()
@@ -107,36 +118,6 @@ def create_session() -> tuple[int, str]:
         conn.close()
 
 
-def end_session(session_id: int) -> str | None:
-    ended_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-    conn = get_connection()
-    try:
-        if USE_PG:
-            cur = conn.cursor()
-            cur.execute("UPDATE sessions SET ended_at = %s WHERE id = %s", (ended_at, session_id))
-            conn.commit()
-        else:
-            conn.execute("UPDATE sessions SET ended_at = ? WHERE id = ?", (ended_at, session_id))
-            conn.commit()
-        return ended_at
-    finally:
-        conn.close()
-
-
-def get_session(session_id: int) -> dict | None:
-    conn = get_connection()
-    try:
-        if USE_PG:
-            cur = conn.cursor()
-            cur.execute("SELECT id, started_at, ended_at FROM sessions WHERE id = %s", (session_id,))
-            row = cur.fetchone()
-            return _pg_row_to_dict(row)
-        row = conn.execute("SELECT id, started_at, ended_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
-        return _sqlite_row_to_dict(row)
-    finally:
-        conn.close()
-
-
 ACTIVE_SESSION_MAX_AGE_HOURS = 24
 
 
@@ -146,13 +127,22 @@ def get_active_session() -> dict | None:
         if USE_PG:
             cur = conn.cursor()
             cur.execute(
-                """SELECT id, started_at, ended_at FROM sessions
-                   WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"""
+                """SELECT s.id, s.started_at, s.ended_at, COUNT(d.id) as distraction_count
+                   FROM sessions s
+                   LEFT JOIN distractions d ON d.session_id = s.id
+                   WHERE s.ended_at IS NULL
+                   GROUP BY s.id, s.started_at, s.ended_at
+                   ORDER BY s.started_at DESC LIMIT 1"""
             )
             row = cur.fetchone()
         else:
             row = conn.execute(
-                "SELECT id, started_at, ended_at FROM sessions WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1"
+                """SELECT s.id, s.started_at, s.ended_at, COUNT(d.id) as distraction_count
+                   FROM sessions s
+                   LEFT JOIN distractions d ON d.session_id = s.id
+                   WHERE s.ended_at IS NULL
+                   GROUP BY s.id, s.started_at, s.ended_at
+                   ORDER BY s.started_at DESC LIMIT 1"""
             ).fetchone()
         if row is None:
             return None
@@ -165,62 +155,160 @@ def get_active_session() -> dict | None:
         age_hours = (now - started).total_seconds() / 3600
         if age_hours > ACTIVE_SESSION_MAX_AGE_HOURS:
             return None
-        sid = row_d["id"]
-        if USE_PG:
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) as cnt FROM distractions WHERE session_id = %s", (sid,))
-            count = cur.fetchone()["cnt"]
-        else:
-            count = conn.execute("SELECT COUNT(*) FROM distractions WHERE session_id = ?", (sid,)).fetchone()[0]
         return {
-            "id": sid,
+            "id": row_d["id"],
             "started_at": started_at_str,
             "ended_at": row_d["ended_at"],
-            "distraction_count": count,
+            "distraction_count": row_d["distraction_count"],
         }
     finally:
         conn.close()
 
 
-def add_distraction(session_id: int) -> tuple[int, int, str]:
+def validate_and_add_distraction(session_id: int) -> tuple[int, int, str]:
+    """Validate session and add distraction in a single connection."""
     created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = get_connection()
     try:
         if USE_PG:
             cur = conn.cursor()
+            cur.execute("SELECT id, ended_at FROM sessions WHERE id = %s", (session_id,))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Session not found")
+            if row["ended_at"]:
+                raise ValueError("Session already ended")
             cur.execute(
                 "INSERT INTO distractions (session_id, created_at) VALUES (%s, %s) RETURNING id",
                 (session_id, created_at),
             )
-            row = cur.fetchone()
+            dist_row = cur.fetchone()
             conn.commit()
-            return row["id"], session_id, created_at
-        cur = conn.execute(
-            "INSERT INTO distractions (session_id, created_at) VALUES (?, ?)",
-            (session_id, created_at),
-        )
-        conn.commit()
-        return cur.lastrowid, session_id, created_at
+            return dist_row["id"], session_id, created_at
+        else:
+            row = conn.execute("SELECT id, ended_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            if not row:
+                raise ValueError("Session not found")
+            if row["ended_at"]:
+                raise ValueError("Session already ended")
+            cur = conn.execute(
+                "INSERT INTO distractions (session_id, created_at) VALUES (?, ?)",
+                (session_id, created_at),
+            )
+            conn.commit()
+            return cur.lastrowid, session_id, created_at
     finally:
         conn.close()
 
 
-def get_distractions_for_session(session_id: int) -> list[dict]:
+def end_session_full(session_id: int) -> dict:
+    """Validate, end session, and compute summary in a single connection."""
+    ended_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn = get_connection()
+    try:
+        # Validate and update in one connection
+        if USE_PG:
+            cur = conn.cursor()
+            cur.execute("SELECT id, started_at, ended_at FROM sessions WHERE id = %s", (session_id,))
+            session = cur.fetchone()
+        else:
+            session = conn.execute(
+                "SELECT id, started_at, ended_at FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+
+        if not session:
+            raise ValueError("Session not found")
+        session_d = _pg_row_to_dict(session) if USE_PG else _sqlite_row_to_dict(session)
+        if session_d.get("ended_at"):
+            raise ValueError("Session already ended")
+
+        # End the session
+        if USE_PG:
+            cur.execute("UPDATE sessions SET ended_at = %s WHERE id = %s", (ended_at, session_id))
+        else:
+            conn.execute("UPDATE sessions SET ended_at = ? WHERE id = ?", (ended_at, session_id))
+
+        # Fetch distractions for summary
+        if USE_PG:
+            cur.execute(
+                "SELECT created_at FROM distractions WHERE session_id = %s ORDER BY created_at",
+                (session_id,),
+            )
+            dist_rows = cur.fetchall()
+        else:
+            dist_rows = conn.execute(
+                "SELECT created_at FROM distractions WHERE session_id = ? ORDER BY created_at",
+                (session_id,),
+            ).fetchall()
+
+        conn.commit()
+
+        dist_times = [dict(r)["created_at"] for r in dist_rows]
+        start = _parse_iso(session_d["started_at"])
+        end = _parse_iso(ended_at)
+        duration_seconds = (end - start).total_seconds()
+        count = len(dist_times)
+        num_streaks = count + 1 if count > 0 else 1
+        average_streak_seconds = duration_seconds / num_streaks
+        longest_streak = _longest_streak_seconds(session_d["started_at"], ended_at, dist_times)
+
+        return {
+            "id": session_id,
+            "started_at": session_d["started_at"],
+            "ended_at": ended_at,
+            "summary": {
+                "duration_seconds": round(duration_seconds, 2),
+                "distraction_count": count,
+                "average_streak_seconds": round(average_streak_seconds, 2),
+                "longest_streak_seconds": round(longest_streak, 2),
+            },
+        }
+    finally:
+        conn.close()
+
+
+def get_session_summary(session_id: int) -> dict | None:
+    """Get summary for an already-ended session (used by standalone summary endpoint)."""
     conn = get_connection()
     try:
         if USE_PG:
             cur = conn.cursor()
+            cur.execute("SELECT id, started_at, ended_at FROM sessions WHERE id = %s", (session_id,))
+            row = cur.fetchone()
+            session = _pg_row_to_dict(row)
+        else:
+            row = conn.execute("SELECT id, started_at, ended_at FROM sessions WHERE id = ?", (session_id,)).fetchone()
+            session = _sqlite_row_to_dict(row)
+
+        if not session or not session.get("ended_at"):
+            return None
+
+        if USE_PG:
             cur.execute(
-                "SELECT id, session_id, created_at FROM distractions WHERE session_id = %s ORDER BY created_at",
+                "SELECT created_at FROM distractions WHERE session_id = %s ORDER BY created_at",
                 (session_id,),
             )
-            rows = cur.fetchall()
-            return [{"id": r["id"], "session_id": r["session_id"], "created_at": r["created_at"]} for r in rows]
-        rows = conn.execute(
-            "SELECT id, session_id, created_at FROM distractions WHERE session_id = ? ORDER BY created_at",
-            (session_id,),
-        ).fetchall()
-        return [{"id": r["id"], "session_id": r["session_id"], "created_at": r["created_at"]} for r in rows]
+            dist_rows = cur.fetchall()
+        else:
+            dist_rows = conn.execute(
+                "SELECT created_at FROM distractions WHERE session_id = ? ORDER BY created_at",
+                (session_id,),
+            ).fetchall()
+
+        dist_times = [dict(r)["created_at"] for r in dist_rows]
+        start = _parse_iso(session["started_at"])
+        end = _parse_iso(session["ended_at"])
+        duration_seconds = (end - start).total_seconds()
+        count = len(dist_times)
+        num_streaks = count + 1 if count > 0 else 1
+        average_streak_seconds = duration_seconds / num_streaks
+        longest_streak = _longest_streak_seconds(session["started_at"], session["ended_at"], dist_times)
+        return {
+            "duration_seconds": round(duration_seconds, 2),
+            "distraction_count": count,
+            "average_streak_seconds": round(average_streak_seconds, 2),
+            "longest_streak_seconds": round(longest_streak, 2),
+        }
     finally:
         conn.close()
 
@@ -246,27 +334,6 @@ def _longest_streak_seconds(started_at: str, ended_at: str | None, distraction_t
     return max(gaps) if gaps else 0.0
 
 
-def get_session_summary(session_id: int) -> dict | None:
-    session = get_session(session_id)
-    if not session or not session.get("ended_at"):
-        return None
-    distractions = get_distractions_for_session(session_id)
-    dist_times = [d["created_at"] for d in distractions]
-    start = _parse_iso(session["started_at"])
-    end = _parse_iso(session["ended_at"])
-    duration_seconds = (end - start).total_seconds()
-    count = len(distractions)
-    num_streaks = count + 1 if count > 0 else 1
-    average_streak_seconds = duration_seconds / num_streaks
-    longest_streak = _longest_streak_seconds(session["started_at"], session["ended_at"], dist_times)
-    return {
-        "duration_seconds": round(duration_seconds, 2),
-        "distraction_count": count,
-        "average_streak_seconds": round(average_streak_seconds, 2),
-        "longest_streak_seconds": round(longest_streak, 2),
-    }
-
-
 def _fetch_all(conn, sql, params):
     if USE_PG:
         cur = conn.cursor()
@@ -285,113 +352,107 @@ def _fetch_one(conn, sql, params):
     return dict(row) if row else None
 
 
+def _compute_day_stats(sessions, distractions_by_session):
+    """Compute distraction count and longest streak for a list of sessions."""
+    day_distractions = 0
+    day_streaks = []
+    for s in sessions:
+        dist_times = distractions_by_session.get(s["id"], [])
+        day_distractions += len(dist_times)
+        streak = _longest_streak_seconds(s["started_at"], s["ended_at"], dist_times)
+        if streak > 0 or (s["ended_at"] and not dist_times):
+            day_streaks.append(streak)
+    return day_distractions, day_streaks
+
+
 def get_stats() -> dict:
     conn = get_connection()
     try:
         now_ist = datetime.now(IST)
         today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-        today_end_ist = today_start_ist + timedelta(days=1)
-        today_start_utc = today_start_ist.astimezone(timezone.utc)
-        today_end_utc = today_end_ist.astimezone(timezone.utc)
-        today_start_str = today_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-        today_end_str = today_end_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
         now_utc = datetime.now(timezone.utc)
 
-        def q_one(sql, params):
-            row = _fetch_one(conn, sql, params)
-            if not row:
-                return 0
-            return list(row.values())[0] if isinstance(row, dict) else row[0]
-
-        def q_all(sql, params):
-            rows = _fetch_all(conn, sql, params)
-            return [dict(r) for r in rows]
+        # Fetch all sessions and distractions for the last 7 days in 2 queries
+        week_start_ist = today_start_ist - timedelta(days=6)
+        week_start_utc = week_start_ist.astimezone(timezone.utc)
+        tomorrow_end_ist = today_start_ist + timedelta(days=1)
+        tomorrow_end_utc = tomorrow_end_ist.astimezone(timezone.utc)
+        week_start_str = week_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        week_end_str = tomorrow_end_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         if USE_PG:
-            p = (today_start_str, today_end_str)
-            today_sessions = q_one(
-                "SELECT COUNT(*) as cnt FROM sessions WHERE started_at >= %s AND started_at < %s", p
-            )
-            rows = q_all(
-                "SELECT s.id, s.started_at, s.ended_at FROM sessions s WHERE s.started_at >= %s AND s.started_at < %s",
+            p = (week_start_str, week_end_str)
+            all_sessions = [dict(r) for r in _fetch_all(
+                conn,
+                "SELECT id, started_at, ended_at FROM sessions WHERE started_at >= %s AND started_at < %s",
                 p,
-            )
+            )]
         else:
-            p = (today_start_str, today_end_str)
-            today_sessions = q_one(
-                "SELECT COUNT(*) FROM sessions WHERE started_at >= ? AND started_at < ?", p
-            )
-            rows = q_all(
-                "SELECT s.id, s.started_at, s.ended_at FROM sessions s WHERE s.started_at >= ? AND s.started_at < ?",
+            p = (week_start_str, week_end_str)
+            all_sessions = [dict(r) for r in _fetch_all(
+                conn,
+                "SELECT id, started_at, ended_at FROM sessions WHERE started_at >= ? AND started_at < ?",
                 p,
-            )
+            )]
 
-        today_distraction_count = 0
-        today_streaks = []
-        for row in rows:
-            sid = row["id"]
+        # Fetch ALL distractions for these sessions in one query (fixes N+1)
+        session_ids = [s["id"] for s in all_sessions]
+        distractions_by_session = defaultdict(list)
+        if session_ids:
             if USE_PG:
-                dist_rows = q_all("SELECT created_at FROM distractions WHERE session_id = %s ORDER BY created_at", (sid,))
+                placeholders = ",".join(["%s"] * len(session_ids))
+                dist_rows = _fetch_all(
+                    conn,
+                    f"SELECT session_id, created_at FROM distractions WHERE session_id IN ({placeholders}) ORDER BY created_at",
+                    tuple(session_ids),
+                )
             else:
-                dist_rows = q_all("SELECT created_at FROM distractions WHERE session_id = ? ORDER BY created_at", (sid,))
-            dist_times = [r["created_at"] for r in dist_rows]
-            today_distraction_count += len(dist_times)
-            streak = _longest_streak_seconds(row["started_at"], row["ended_at"], dist_times)
-            if streak > 0 or (row["ended_at"] and not dist_times):
-                today_streaks.append(streak)
+                placeholders = ",".join(["?"] * len(session_ids))
+                dist_rows = _fetch_all(
+                    conn,
+                    f"SELECT session_id, created_at FROM distractions WHERE session_id IN ({placeholders}) ORDER BY created_at",
+                    tuple(session_ids),
+                )
+            for r in dist_rows:
+                rd = dict(r)
+                distractions_by_session[rd["session_id"]].append(rd["created_at"])
 
+        # Bucket sessions by IST day
+        day_buckets = defaultdict(list)
+        for s in all_sessions:
+            s_utc = _parse_iso(s["started_at"])
+            s_ist = s_utc.astimezone(IST)
+            day_key = s_ist.strftime("%Y-%m-%d")
+            day_buckets[day_key].append(s)
+
+        # Today's stats
+        today_key = today_start_ist.strftime("%Y-%m-%d")
+        today_sessions_list = day_buckets.get(today_key, [])
+        today_distraction_count, today_streaks = _compute_day_stats(today_sessions_list, distractions_by_session)
+
+        today_start_utc = today_start_ist.astimezone(timezone.utc)
         today_total_seconds = max(0.0, (now_utc - today_start_utc).total_seconds())
         today_hours = today_total_seconds / 3600.0 if today_total_seconds > 0 else 1.0
         today_distractions_per_hour = today_distraction_count / today_hours
         today_longest_streak = max(today_streaks) if today_streaks else 0.0
 
+        # 7-day trend
         last_7_days = []
         for d in range(7):
-            day_start_ist = today_start_ist - timedelta(days=d)
-            day_end_ist = day_start_ist + timedelta(days=1)
-            day_start_utc = day_start_ist.astimezone(timezone.utc)
-            day_end_utc = day_end_ist.astimezone(timezone.utc)
-            day_start_str = day_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-            day_end_str = day_end_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-            if USE_PG:
-                day_sessions = q_all(
-                    "SELECT id, started_at, ended_at FROM sessions WHERE started_at >= %s AND started_at < %s",
-                    (day_start_str, day_end_str),
-                )
-            else:
-                day_sessions = q_all(
-                    "SELECT id, started_at, ended_at FROM sessions WHERE started_at >= ? AND started_at < ?",
-                    (day_start_str, day_end_str),
-                )
-
-            day_distractions = 0
-            day_streaks = []
-            for row in day_sessions:
-                sid = row["id"]
-                if USE_PG:
-                    dist_rows = q_all(
-                        "SELECT created_at FROM distractions WHERE session_id = %s ORDER BY created_at", (sid,)
-                    )
-                else:
-                    dist_rows = q_all(
-                        "SELECT created_at FROM distractions WHERE session_id = ? ORDER BY created_at", (sid,)
-                    )
-                dist_times = [r["created_at"] for r in dist_rows]
-                day_distractions += len(dist_times)
-                streak = _longest_streak_seconds(row["started_at"], row["ended_at"], dist_times)
-                if streak > 0 or (row["ended_at"] and not dist_times):
-                    day_streaks.append(streak)
+            day_ist = today_start_ist - timedelta(days=d)
+            day_key = day_ist.strftime("%Y-%m-%d")
+            day_sessions = day_buckets.get(day_key, [])
+            day_distractions, day_streaks = _compute_day_stats(day_sessions, distractions_by_session)
 
             last_7_days.append({
-                "date": day_start_ist.strftime("%d-%m-%Y"),
+                "date": day_ist.strftime("%d-%m-%Y"),
                 "session_count": len(day_sessions),
                 "total_distractions": day_distractions,
                 "longest_streak_seconds": max(day_streaks) if day_streaks else 0.0,
             })
 
         return {
-            "today_sessions": today_sessions,
+            "today_sessions": len(today_sessions_list),
             "today_distractions_per_hour": round(today_distractions_per_hour, 2),
             "today_longest_streak_seconds": round(today_longest_streak, 2),
             "last_7_days": last_7_days,
