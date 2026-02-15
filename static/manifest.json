@@ -4,8 +4,8 @@
   "description": "Track focus sessions and distractions",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0f0f0f",
-  "theme_color": "#0f0f0f",
+  "background_color": "#050b1a",
+  "theme_color": "#050b1a",
   "orientation": "portrait-primary",
   "icons": [
     {
