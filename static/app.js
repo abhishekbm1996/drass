@@ -2,6 +2,8 @@
   "use strict";
 
   const VIEWS = ["landing", "active", "summary", "stats"];
+  const CACHE_KEY = "drass_active_session";
+  const MAX_SESSION_AGE_HOURS = 24;
   let currentSession = null;
   let distractionCount = 0;
   let timerInterval = null;
@@ -10,6 +12,46 @@
 
   const $ = (sel, el = document) => el.querySelector(sel);
   const $$ = (sel, el = document) => el.querySelectorAll(sel);
+
+  function saveSessionCache() {
+    if (!currentSession || currentSession.id === -1) return;
+    try {
+      localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({
+          id: currentSession.id,
+          started_at: currentSession.started_at,
+          distraction_count: distractionCount,
+        })
+      );
+    } catch (_) {}
+  }
+
+  function clearSessionCache() {
+    try {
+      localStorage.removeItem(CACHE_KEY);
+    } catch (_) {}
+  }
+
+  function loadSessionCache() {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      const started = new Date(data.started_at).getTime();
+      const ageHours = (Date.now() - started) / (1000 * 60 * 60);
+      if (ageHours > MAX_SESSION_AGE_HOURS) {
+        clearSessionCache();
+        return null;
+      }
+      return {
+        session: { id: data.id, started_at: data.started_at },
+        distractionCount: data.distraction_count || 0,
+      };
+    } catch (_) {
+      return null;
+    }
+  }
 
   function showView(name) {
     VIEWS.forEach((v) => {
@@ -107,10 +149,12 @@
     try {
       const session = await sessionPromise;
       currentSession = session;
+      saveSessionCache();
     } catch (e) {
       console.error(e);
       currentSession = null;
       sessionPromise = null;
+      clearSessionCache();
       showView("landing");
     }
   });
@@ -138,6 +182,7 @@
       }
       if (sessionId !== -1) {
         await api("POST", `/api/sessions/${sessionId}/distractions`);
+        saveSessionCache();
       }
     } catch (e) {
       console.error(e);
@@ -165,6 +210,7 @@
     currentSession = null;
     distractionCount = 0;
     sessionPromise = null;
+    clearSessionCache();
     summaryData = {
       duration_seconds: localDuration,
       distraction_count: localDistractionCount,
@@ -242,14 +288,31 @@
     navigator.serviceWorker.register("/service-worker.js", { scope: "/" });
   }
 
-  // --- Init: always restore active session first, then show view (so Back from stats shows active)
+  // --- Init: restore from cache immediately (no landing flash), then validate with API
   (function init() {
+    const cached = loadSessionCache();
+    if (cached) {
+      currentSession = cached.session;
+      distractionCount = cached.distractionCount;
+      const el = $("#distraction-count");
+      if (el) el.textContent = String(distractionCount);
+      if (window.location.hash === "#stats") {
+        showView("stats");
+      } else {
+        showView("active");
+      }
+    } else if (window.location.hash === "#stats") {
+      showView("stats");
+    } else {
+      showView("landing");
+    }
     api("GET", "/api/sessions/active")
       .then((data) => {
         currentSession = { id: data.id, started_at: data.started_at };
         distractionCount = data.distraction_count || 0;
         const el = $("#distraction-count");
         if (el) el.textContent = String(distractionCount);
+        saveSessionCache();
         if (window.location.hash === "#stats") {
           showView("stats");
         } else {
@@ -257,10 +320,13 @@
         }
       })
       .catch(() => {
+        currentSession = null;
+        distractionCount = 0;
+        clearSessionCache();
         if (window.location.hash === "#stats") {
           showView("stats");
         } else {
-          showView(currentSession ? "active" : "landing");
+          showView("landing");
         }
       });
   })();
